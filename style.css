@@ -33,6 +33,8 @@ body {
   font: 400 17px/1.5 var(--body); overflow-x: hidden;
   -webkit-font-smoothing: antialiased; -webkit-tap-highlight-color: transparent;
 }
+body { -webkit-user-select: none; user-select: none; }   /* arrastar o dedo/mouse solta fumaça, não seleciona texto */
+img { -webkit-touch-callout: none; -webkit-user-drag: none; }
 body.locked { overflow: hidden; height: 100svh; }
 html, body { overscroll-behavior-y: none; }   /* sem o "puxa e volta" do celular atrapalhando a raspadinha */
 img { display: block; max-width: 100%; }
@@ -128,7 +130,9 @@ em { font-style: normal; }
 .hero-frame img { width: 100%; height: 100%; object-fit: cover; object-position: 40% 55%; }
 .hero-bubble { left: -38%; top: -4%; z-index: 2; rotate: -7deg; }
 .hero-streaks { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 1; }
-.st { fill: none; stroke-linecap: round; stroke-width: 18; vector-effect: non-scaling-stroke; }
+.st { fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.st0 { stroke: var(--ink); }
+.sth { stroke: #fff; opacity: .55; }
 .st1 { stroke: var(--pink); } .st2 { stroke: var(--blue); } .st3 { stroke: var(--green); }
 .hero-worms { position: absolute; inset: 0; z-index: 1; pointer-events: none; }
 .worm { position: absolute; width: var(--s, 120px); rotate: var(--r, 0deg); }

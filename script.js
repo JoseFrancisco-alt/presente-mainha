@@ -98,7 +98,7 @@ $("#heroWorms").innerHTML = HERO_WORMS.slice(0, lite ? 3 : 5).map(([x, y, s, r, 
    Só roda enquanto tem coisa mexendo.
    ========================================================= */
 const fx = $("#fx"), fxc = fx.getContext("2d");
-let parts = [], trail = [], flyers = [], fxOn = false, fxW = 0, fxH = 0;
+let parts = [], flyers = [], fxOn = false, fxW = 0, fxH = 0;
 function fxSize() {
   const d = Math.min(devicePixelRatio || 1, 1.5);
   fxW = innerWidth; fxH = innerHeight;
@@ -116,10 +116,46 @@ function burst(x, y, n = 40, spread = 1) {
   }
   wake();
 }
-// três riscos voando pela tela (rosa, azul, verde)
-function flyBy(x0, y0, x1, y1, cx, cy, ms = 900) {
+// FUMAÇA DE AVIÃO: cada pedacinho é uma bolinha macia pré-desenhada (barato de pintar).
+// Três faixas coladas (rosa, azul, verde) que ficam no ar e vão se desfazendo.
+const SMOKE = TRIO.map((c) => {
+  const s = document.createElement("canvas"); s.width = s.height = 64;
+  const g = s.getContext("2d"), gr = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  gr.addColorStop(0, c); gr.addColorStop(.5, c); gr.addColorStop(1, c + "00");
+  g.fillStyle = gr; g.fillRect(0, 0, 64, 64);
+  return s;
+});
+const PUFF_LIFE = lite ? 1000 : 1600;
+let puffs = [];
+function smokeAlong(a, b, size, now) {
+  const dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy);
+  if (len < 1) return;
+  const nx = -dy / len, ny = dx / len, n = Math.ceil(len / Math.max(3, size * .4));
+  for (let i = 1; i <= n; i++) {
+    const t = i / n, x = a.x + dx * t, y = a.y + dy * t;
+    for (let k = 0; k < 3; k++) {
+      const o = (k - 1) * size * 1.05;
+      puffs.push({ x: x + nx * o, y: y + ny * o, k, s: size, t: now - (1 - t) * 16, dx: (Math.random() - .5) * .22, dy: (Math.random() - .5) * .22 - .06 });
+    }
+  }
+  if (puffs.length > 2600) puffs.splice(0, puffs.length - 2600);
+}
+// aviãozinho vermelho puxando a fumaça
+function drawPlane(x, y, ang, size) {
+  fxc.save(); fxc.translate(x, y); fxc.rotate(ang); fxc.scale(size / 40, size / 40);
+  fxc.lineJoin = "round"; fxc.lineWidth = 3; fxc.strokeStyle = "#1d0f1f";
+  fxc.fillStyle = "#b3121c";
+  fxc.beginPath(); fxc.moveTo(6, -3); fxc.lineTo(-6, -24); fxc.lineTo(-13, -24); fxc.lineTo(-7, -3); fxc.lineTo(-7, 3); fxc.lineTo(-13, 24); fxc.lineTo(-6, 24); fxc.lineTo(6, 3); fxc.closePath(); fxc.fill(); fxc.stroke();
+  fxc.beginPath(); fxc.moveTo(-17, -2); fxc.lineTo(-25, -12); fxc.lineTo(-21, -2); fxc.lineTo(-21, 2); fxc.lineTo(-25, 12); fxc.lineTo(-17, 2); fxc.closePath(); fxc.fill(); fxc.stroke();
+  fxc.fillStyle = "#e5232b"; fxc.beginPath(); fxc.ellipse(0, 0, 23, 7, 0, 0, Math.PI * 2); fxc.fill(); fxc.stroke();
+  fxc.fillStyle = "#bfe9ff"; fxc.beginPath(); fxc.ellipse(9, 0, 5.5, 3.6, 0, 0, Math.PI * 2); fxc.fill(); fxc.lineWidth = 2; fxc.stroke();
+  fxc.fillStyle = "#fff"; fxc.globalAlpha = .7; fxc.beginPath(); fxc.ellipse(-2, -3, 10, 1.6, 0, 0, Math.PI * 2); fxc.fill(); fxc.globalAlpha = 1;
+  fxc.restore();
+}
+// um avião cruzando a tela numa curva (x0,y0 até x1,y1 passando perto de cx,cy)
+function flyBy(x0, y0, x1, y1, cx, cy, ms = 1400, size = 13) {
   if (reduce) return;
-  flyers.push({ x0, y0, x1, y1, cx, cy, t0: performance.now(), ms });
+  flyers.push({ x0, y0, x1, y1, cx, cy, t0: performance.now(), ms, size, last: null });
   wake();
 }
 function star(x, y, r, rot) {
@@ -129,29 +165,27 @@ function star(x, y, r, rot) {
 }
 function fxLoop(now) {
   fxc.clearRect(0, 0, fxW, fxH);
-  // riscos voando viram pontos do rastro
+  // fumaça
+  puffs = puffs.filter((p) => now - p.t < PUFF_LIFE);
+  for (const p of puffs) {
+    const a = Math.max(0, (now - p.t) / PUFF_LIFE), r = p.s * (.62 + a * 1.25);
+    p.x += p.dx; p.y += p.dy;
+    fxc.globalAlpha = Math.pow(1 - a, 1.5) * .95;
+    fxc.drawImage(SMOKE[p.k], p.x - r, p.y - r, r * 2, r * 2);
+  }
+  fxc.globalAlpha = 1;
+  // aviões
   flyers = flyers.filter((f) => {
-    const p = Math.min(1, (now - f.t0) / f.ms), e = 1 - Math.pow(1 - p, 2), u = 1 - e;
-    trail.push({ x: u * u * f.x0 + 2 * u * e * f.cx + e * e * f.x1, y: u * u * f.y0 + 2 * u * e * f.cy + e * e * f.y1, t: now, w: 14 });
+    const p = Math.min(1, (now - f.t0) / f.ms), e = p * p * (3 - 2 * p), u = 1 - e;
+    const cur = { x: u * u * f.x0 + 2 * u * e * f.cx + e * e * f.x1, y: u * u * f.y0 + 2 * u * e * f.cy + e * e * f.y1 };
+    if (f.last) {
+      smokeAlong(f.last, cur, f.size, now);
+      if (Math.hypot(cur.x - f.last.x, cur.y - f.last.y) > .3) f.ang = Math.atan2(cur.y - f.last.y, cur.x - f.last.x);
+    }
+    drawPlane(cur.x, cur.y, f.ang || 0, f.size * 3.2);
+    f.last = cur;
     return p < 1;
   });
-  // rastro
-  trail = trail.filter((p) => now - p.t < 420);
-  if (trail.length > 1) {
-    fxc.lineCap = "round";
-    for (let i = 1; i < trail.length; i++) {
-      const a = trail[i - 1], b = trail[i];
-      if (b.t - a.t > 60) continue;
-      const dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy) || 1, nx = -dy / len, ny = dx / len;
-      const life = 1 - (now - b.t) / 420, w = (b.w || 8) * life, gap = w * 1.05;
-      TRIO.forEach((c, k) => {
-        const o = (k - 1) * gap;
-        fxc.strokeStyle = c; fxc.globalAlpha = Math.min(1, life * 1.4); fxc.lineWidth = w;
-        fxc.beginPath(); fxc.moveTo(a.x + nx * o, a.y + ny * o); fxc.lineTo(b.x + nx * o, b.y + ny * o); fxc.stroke();
-      });
-    }
-    fxc.globalAlpha = 1;
-  }
   // minhoquinhas e estrelas
   parts = parts.filter((p) => p.y < fxH + 60);
   fxc.lineCap = "round";
@@ -165,20 +199,22 @@ function fxLoop(now) {
     fxc.strokeStyle = p.c[0]; fxc.beginPath(); fxc.moveTo(p.x - cs * h, p.y - sn * h); fxc.lineTo(p.x, p.y); fxc.stroke();
     fxc.strokeStyle = p.c[1]; fxc.beginPath(); fxc.moveTo(p.x, p.y); fxc.lineTo(p.x + cs * h, p.y + sn * h); fxc.stroke();
   }
-  if (parts.length || trail.length || flyers.length) requestAnimationFrame(fxLoop);
+  if (parts.length || puffs.length || flyers.length) requestAnimationFrame(fxLoop);
   else { fxOn = false; fxc.clearRect(0, 0, fxW, fxH); }
 }
-// rastro segue o mouse; no celular, segue o dedo enquanto encosta
+// fumaça segue o mouse; no celular, segue o dedo enquanto encosta
 if (!lite) {
-  let touching = false;
-  addEventListener("pointerdown", (e) => { if (e.pointerType !== "mouse") touching = true; }, { passive: true });
-  addEventListener("pointerup", () => (touching = false), { passive: true });
-  addEventListener("pointercancel", () => (touching = false), { passive: true });
+  let touching = false, lp = null;
+  addEventListener("pointerdown", (e) => { if (e.pointerType !== "mouse") touching = true; lp = null; }, { passive: true });
+  const stop = () => { touching = false; lp = null; };
+  addEventListener("pointerup", stop, { passive: true });
+  addEventListener("pointercancel", stop, { passive: true });
   addEventListener("pointermove", (e) => {
     if (e.pointerType !== "mouse" && !touching) return;
-    if (e.target.closest && e.target.closest(".pack, .lightbox")) return;
-    trail.push({ x: e.clientX, y: e.clientY, t: performance.now() });
-    wake();
+    if (e.target.closest && e.target.closest(".pack, .lightbox")) { lp = null; return; }
+    const p = { x: e.clientX, y: e.clientY };
+    if (lp) smokeAlong(lp, p, finePointer ? 7 : 9, performance.now());
+    lp = p; wake();
   }, { passive: true });
 }
 // toque solto: espirra minhoquinha
@@ -202,14 +238,48 @@ if (G) {
   }
 }
 
+/* ---------- faixa de três cores da capa (coladas, sem buraco) ---------- */
+function buildStreaks() {
+  const svg = $(".hero-streaks"), hero = $("#hero"), w = hero.clientWidth, h = hero.clientHeight;
+  svg.setAttribute("viewBox", `0 0 ${w} ${h}`);
+  const W = Math.max(16, Math.min(34, w * .045));
+  // curva em S (dois trechos cúbicos) atravessando a capa
+  const seg = [[[-.1, .97], [.25, .7], [.35, 1.02], [.55, .72]], [[.55, .72], [.75, .42], [.82, .2], [1.12, .14]]];
+  const pts = [];
+  seg.forEach((c, si) => {
+    for (let i = si ? 1 : 0; i <= 40; i++) {
+      const t = i / 40, u = 1 - t;
+      const x = u * u * u * c[0][0] + 3 * u * u * t * c[1][0] + 3 * u * t * t * c[2][0] + t * t * t * c[3][0];
+      const y = u * u * u * c[0][1] + 3 * u * u * t * c[1][1] + 3 * u * t * t * c[2][1] + t * t * t * c[3][1];
+      pts.push([x * w, y * h]);
+    }
+  });
+  const band = (off) => pts.map(([x, y], i) => {
+    const [ax, ay] = pts[Math.max(0, i - 1)], [bx, by] = pts[Math.min(pts.length - 1, i + 1)];
+    const dx = bx - ax, dy = by - ay, L = Math.hypot(dx, dy) || 1;
+    return `${i ? "L" : "M"}${(x - dy / L * off).toFixed(1)} ${(y + dx / L * off).toFixed(1)}`;
+  }).join(" ");
+  svg.innerHTML = `<path class="st st0" d="${band(0)}" style="stroke-width:${3 * W + 8}px"/>` +
+    [-W, 0, W].map((o, k) => `<path class="st st${k + 1}" d="${band(o)}" style="stroke-width:${W + 1.5}px"/>`).join("") +
+    `<path class="st sth" d="${band(-W * 1.25)}" style="stroke-width:${Math.max(2, W * .14)}px"/>`;
+}
+buildStreaks();
+{
+  let lastW = innerWidth;
+  addEventListener("resize", () => {
+    if (innerWidth === lastW) return;
+    lastW = innerWidth; buildStreaks();
+  });
+}
+
 /* ---------- abertura do gibi (toca quando o coração é apertado) ---------- */
 let intro = null;
 if (G) {
   const streaks = $$(".st");
-  streaks.forEach((p) => { const L = p.getTotalLength(); p.style.strokeDasharray = L; p.style.strokeDashoffset = L; });
+  streaks.forEach((p) => { const L = p.getTotalLength() + 2; p.style.strokeDasharray = L; p.style.strokeDashoffset = L; });
   intro = gsap.timeline({ paused: true, defaults: { ease: "power3.out" } })
     .from(".cover-top", { y: -40, opacity: 0, duration: .6 })
-    .to(streaks, { strokeDashoffset: 0, duration: 1.1, stagger: .1, ease: "power2.inOut" }, 0)
+    .to(streaks, { strokeDashoffset: 0, duration: 1.3, ease: "power2.inOut" }, 0)
     .from(".hero-pre", { y: 20, opacity: 0, duration: .5 }, .15)
     .from(".hero-title .ch", { yPercent: 70, rotate: () => gsap.utils.random(-25, 25), opacity: 0, duration: .8, stagger: .06, ease: "back.out(2.2)" }, .2)
     .from(".hero-tag span", { scale: 0, rotate: -20, duration: .6, ease: "back.out(2.5)" }, .65)
@@ -231,13 +301,29 @@ function openGate(quiet) {
   if (intro) intro.play();
   if (!quiet) {
     burst(innerWidth / 2, innerHeight * .5, 60);
-    flyBy(-40, innerHeight * .9, innerWidth + 40, innerHeight * .15, innerWidth * .35, innerHeight * .2, 950);
+    flyBy(-60, innerHeight * .92, innerWidth + 60, innerHeight * .12, innerWidth * .3, innerHeight * .15, 1500, 15);
     setTimeout(() => burst(innerWidth / 2, innerHeight * .45, 36), 260);
   }
   setTimeout(() => { gate.hidden = true; if (G) ScrollTrigger.refresh(); }, 1000);
 }
 $("#gateBtn").addEventListener("click", () => openGate(false));
 if (params.has("direto")) openGate(true);   // ?direto pula a capa (pra testar)
+
+/* ---------- aviõezinhos cruzando a capa de vez em quando ---------- */
+if (!reduce && !lite) {
+  let timer = null;
+  const pass = () => {
+    if (gate.classList.contains("open")) {
+      const ltr = Math.random() > .5, W = innerWidth, H = innerHeight, y0 = H * (.25 + Math.random() * .5);
+      flyBy(ltr ? -60 : W + 60, y0, ltr ? W + 60 : -60, H * (.1 + Math.random() * .3), W * .5, y0 + H * (Math.random() > .5 ? .25 : -.25), 2600, 11);
+    }
+    timer = setTimeout(pass, 5200 + Math.random() * 2500);
+  };
+  new IntersectionObserver((en) => {
+    if (en[0].isIntersecting) { if (!timer) timer = setTimeout(pass, 2600); }
+    else { clearTimeout(timer); timer = null; }
+  }, { threshold: .4 }).observe($("#hero"));
+}
 
 /* ---------- página de gibi ---------- */
 const PANEL_BG = ["#ff6fb1", "#45b8f0", "#ffd23f", "#7ed957", "#e5232b"];
@@ -407,7 +493,7 @@ $$(".pack", packsEl).forEach((el) => {
     hint.textContent = "é seu!!";
     const r = el.getBoundingClientRect();
     burst(r.left + r.width / 2, r.top + r.height * .45, 60);
-    flyBy(r.left - 30, r.bottom, r.right + 30, r.top, r.left + r.width * .2, r.top, 700);
+    flyBy(-60, r.bottom, innerWidth + 60, r.top - 40, innerWidth * .3, r.top - 60, 1500, 12);
     if (++revealed === PACOTES.length) {
       $("#packNote").textContent = "os dois são seus. desce mais um pouco";
       setTimeout(() => { burst(innerWidth * .2, innerHeight * .7, 50, .7); burst(innerWidth * .8, innerHeight * .7, 50, .7); }, 500);
@@ -501,6 +587,6 @@ $("#again").addEventListener("click", () => { if (lenis) lenis.scrollTo(0, { dur
 new IntersectionObserver((en, o) => {
   if (!en[0].isIntersecting) return;
   burst(innerWidth / 2, innerHeight * .8, 80);
-  flyBy(-40, innerHeight * .2, innerWidth + 40, innerHeight * .75, innerWidth * .5, innerHeight * .95, 1100);
+  flyBy(-60, innerHeight * .25, innerWidth + 60, innerHeight * .3, innerWidth * .5, innerHeight * .95, 2000, 15);
   o.disconnect();
 }, { threshold: .5 }).observe($("#fim"));
